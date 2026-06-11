@@ -9,6 +9,10 @@ on:
   push:
     branches: trunk
 
+# permissions are needed if pushing to ghcr.io
+permissions: 
+  packages: write
+
 # Prevent overlapping runs for the same workflow and ref
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,8 +21,9 @@ concurrency:
 # Environment variables available to all jobs and steps in this workflow
 env:
   DOCKER_BUILDKIT: 1
-  IMAGE_NAME: caddy-ratelimit
   IMAGE_DESCRIPTION: "Caddy custom build with Rate Limit module"
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 # Jobs to run once the workflow is triggered
 jobs:
@@ -35,18 +40,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-        with:
-          ref: trunk
-
-      - name: Generate image metadata
-        uses: docker/metadata-action@v6
-        id: metadata
-        with:
-          images: |
-            ghcr.io/${{ github.actor }}/${{ env.IMAGE_NAME }}
-          labels: |
-            org.opencontainers.image.title=${{ env.IMAGE_NAME }}
-            org.opencontainers.image.description=${{ env.IMAGE_DESCRIPTION }}
 
   # Job to build and publish image
   build:
@@ -57,30 +50,34 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-        with:
-          ref: trunk
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
-
-      - name: Login to GitHub Container Repository
-        uses: docker/login-action@v4
+      - name: Login to GHCR
+        uses: docker/login-action@v2
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=schedule
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
       - name: Build and publish container image
         uses: docker/build-push-action@v7
-        id: build
         with:
           context: .
-          file: ./Containerfile
-          push: true
-          provenance: false
-          tags: latest
-          labels: ${{ needs.metadata.outputs.labels }}
           platforms: ${{ needs.metadata.outputs.platforms }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
