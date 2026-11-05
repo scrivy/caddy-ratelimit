@@ -1,7 +1,8 @@
 FROM docker.io/library/caddy:2-builder AS builder
 
 RUN xcaddy build \
-    --with github.com/mholt/caddy-ratelimit
+    --with github.com/mholt/caddy-ratelimit \
+    --with github.com/mholt/caddy-l4
 
 FROM docker.io/library/caddy:2
 
